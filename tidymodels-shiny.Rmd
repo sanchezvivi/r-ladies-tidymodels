@@ -1,0 +1,770 @@
+---
+title: "Tidymodels - Estruturando o processo de Machine Learning"
+author: "Viviane Sanchez"
+date: "05/08/2021"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: lumen
+runtime: shiny
+---
+```{r setup, include=FALSE, warning=FALSE}
+
+library(shiny)
+library(flexdashboard)
+library(knitr)
+library(skimr)
+library(gt)
+
+library(tidymodels)
+library(tidyverse)
+library(lubridate)
+
+library(highcharter)
+library(ggrepel)
+library(ggthemes)
+library(beyonce)
+
+library(ranger)
+library(kknn)
+library(vip)
+
+knitr::opts_chunk$set(echo = FALSE)
+
+today <- Sys.Date()
+
+## ggplot setup ------
+
+theme_set(theme_minimal())
+
+theme_update(text = element_text(family = "Avenir Next", 
+                                 size = 14,
+                                 color = "#5F504C"),
+             plot.title = element_text(face = "bold", 
+                                       size = 16,
+                                       color = "#B38C45"
+                                       ),
+             legend.position = "bottom")
+
+
+nobel_colors <- c("#B38C45", #yellow
+                  "#5F504C", #brown
+                  "#2C1F53", #purple
+                  "#E5E2DF" #backgroound
+                  )
+
+# hc_cols <- c("#7cb5ec", "#434348", "#90ed7d", "#f7a35c", 
+#              "#8085e9", "#f15c80", "#e4d354", "#2b908f", 
+#              "#f45b5b", "#91e8e1")
+
+ options(digits=4)
+
+ 
+```
+
+```{r global, message=FALSE, warning=FALSE, cache=TRUE, context="data", include=FALSE}
+
+
+# netflix_titles <- read_csv(https://www.kaggle.com/rtatman/chocolate-bar-ratings?select=flavors_of_cacao.csv)
+
+
+nobel_raw <- read_csv("data/nobel_final.csv")
+
+nobel <- nobel_raw %>% 
+  janitor::clean_names() %>% 
+  mutate(alive = if_else(is.na(died_country_code), "yes", "no"),
+         immigrant = if_else(born_country_code == died_country_code, "yes", "no"),
+         immigrant = replace_na(immigrant, "unknown"),
+         gender = factor(gender)) %>% 
+  select(-age)
+
+numeric_cols <- nobel %>% 
+  select(where(is.numeric)) %>% 
+  colnames()
+
+cat_cols <- nobel %>% 
+  select(!where(is.numeric)) %>% 
+  colnames()
+
+
+color_cols <- c("gender","alive","immigrant")
+
+
+# nobel %>% 
+#   ggplot(aes(category)) +
+#   geom_bar() +
+#   facet_wrap(~gender, scales)+
+#   #geom_text_repel(size = 3, show.legend = F) +
+#   scale_color_manual(values = c("#B38C45","#E5E2DF"))
+
+
+```
+
+Intro
+==============================
+
+Row {.tabset}
+----------------------------------
+
+### Capa
+
+```{r}
+
+#include_graphics("img/Arte_Banner_Tidymodels.png")
+
+include_graphics("img/extra_slides/Slide10.png")
+
+```
+
+
+### Agenda
+
+
+```{r}
+#include_url("https://github.com/tidymodels/tidymodels/raw/master/tidymodels_hex.png", height = "400px")
+
+#url <- "https://github.com/tidymodels/tidymodels/raw/master/tidymodels_hex.png"
+
+#s<center><img src="`r url`"></center>
+
+#knitr::include_graphics(url)
+
+#![](`r url`){width=20%}
+
+include_graphics("img/extra_slides/Slide2.png")
+
+```
+
+### Estrutura
+
+```{r}
+
+include_graphics("img/extra_slides/Slide3.png")
+
+
+```
+
+
+
+Dados
+================================
+
+
+
+```{r}
+
+gt_output(outputId = "table")
+
+```
+
+
+```{r warning=FALSE, context="server"}
+
+gt_tbl <- nobel %>%
+  head(10) %>% gt()
+
+output$table <-
+    render_gt(
+      expr = gt_tbl
+      #width = px(1000)
+    )
+
+```
+
+EDA
+================================
+
+Parâmetros {.sidebar}
+--------------------------------------------------
+
+```{r}
+
+selectInput("x_id", label = "Variável X", 
+            choices = append(numeric_cols,cat_cols),
+            multiple = F,
+            selected = numeric_cols[1])
+
+
+selectInput("y_id", label = "Variável Y", choices = numeric_cols,
+            multiple = F,
+            selected = numeric_cols[3])
+
+selectInput("cat_id", label = "Variável Categórica (Cor)", choices = color_cols,
+            multiple = F,
+            selected = "gender")
+
+selectInput("facet_id", label = "Variável Categórica (Facet)", choices = append("none", cat_cols),
+            multiple = F,
+            selected = "none")
+
+column(6, align="center", offset = 3,
+    actionButton("update_button", "Atualizar"),
+         tags$style(type='text/css', "#button { vertical-align- middle; height- 50px; width- 100%; font-size- 30px;}"))
+
+```
+
+
+Row {.tabset}
+----------------------------------
+
+### Estrutura
+
+```{r}
+include_graphics("img/extra_slides/Slide4.png")
+```
+
+### Visualização
+
+```{r}
+
+plotOutput("eda_plot")
+
+# penguins %>%
+#   filter(!is.na(gender)) %>%
+#   #ggplot(aes(input$x_id, input$y_id, color = input$cat_id)) +
+#   ggplot(aes(flipper_length_mm, bill_depth_mm, color = gender)) +
+#   geom_point(alpha = 0.5) #+ facet_wrap(~species)
+
+```
+
+```{r warning=FALSE, context="server"}
+
+
+col_x <- reactive({
+    clicks <- input$update_button
+  isolate({input$x_id})})
+
+col_y <- reactive({
+    clicks <- input$update_button
+  isolate({input$y_id})})
+
+col_cat <- reactive({
+    clicks <- input$update_button
+  isolate({input$cat_id})})
+
+col_facet <- reactive({
+    clicks <- input$update_button
+  isolate({input$facet_id})})
+
+
+output$eda_plot <- renderPlot({
+  
+  clicks <- input$update_button
+    isolate({
+  
+    if(input$facet_id != "none"){
+    
+nobel %>%
+    ggplot(aes(get(col_x()), get(col_y()), 
+             color = get(col_cat()),
+             label = if_else(gender == "female", 
+                             surname, ""))) +
+  geom_point(alpha = 0.7, size = 2) +
+  facet_wrap(~ get(col_facet())) +
+  #geom_text_repel(size = 3, show.legend = F) +
+  scale_color_manual(values = c("#B38C45","#E5E2DF", "#2C1F53")) +
+  labs(x = col_x(),
+        y = col_y(),
+        color = col_cat())
+      
+    }else{
+      
+nobel %>%
+  ggplot(aes(get(col_x()), get(col_y()), 
+             color = get(col_cat()),
+             label = if_else(gender == "female", 
+                             surname, ""))) +      
+  geom_point(alpha = 0.7, size = 3) +
+  geom_text_repel(size = 4, show.legend = F) +
+  scale_color_manual(values = c("#B38C45","#E5E2DF", "#2C1F53")) +
+  labs(x = col_x(),
+       y = col_y(),
+       color = col_cat())
+        }
+  })
+})
+
+```
+
+### Mapa
+
+```{r echo=FALSE}
+
+highchartOutput("nobel_map")
+
+```
+
+```{r warning=FALSE, context="server"}
+
+library(highcharter)
+
+
+# nobel_summary <- reactive({
+#   
+#     clicks <- input$update_button
+#   
+#   isolate({
+
+  nobel_summary <- nobel %>% 
+    filter(gender == "female") %>% 
+     group_by(born_country_code) %>%
+      #group_by(born_country_code, col_cat()) %>% 
+      summarise(Quantidade = n()) %>% 
+    ungroup()
+    
+  #   
+  # })})
+  #   
+
+output$nobel_map <- renderHighchart({
+  
+  clicks <- input$update_button
+  
+isolate({  
+  
+  hcmap(
+    "custom/world-robinson-lowres", 
+    data = nobel_summary,
+    #name = col_cat(), 
+    name = "Número de Mulheres Premiadas",
+    #value = "total_revenue",
+    value = "Quantidade",
+    borderWidth = 0,
+    nullColor = "#d3d3d3",
+    joinBy = c("hc-a2", "born_country_code")) %>%
+  hc_colorAxis(
+   stops = color_stops(colors = viridisLite::inferno(10, begin = 0.1,
+                                                      direction = -1)),
+    type = "logarithmic") %>% 
+  hc_tooltip(valueDecimals = 2)
+  
+  })})
+
+```
+
+
+Processamento
+================================
+
+Row {.tabset}
+----------------------------------
+
+### Estrutura
+
+```{r}
+
+
+include_graphics("img/extra_slides/Slide5.png")
+
+```
+
+
+### Treino x Teste
+
+```{r echo=TRUE}
+
+set.seed(123)
+(nobel_split <- initial_split(nobel, strata = gender))
+
+nobel_train <- training(nobel_split)
+nobel_test <- testing(nobel_split)
+
+```
+
+### Pipeline de processamento
+
+- **Feature Engineering**
+
+```{r echo=TRUE}
+
+(nobel_rec <- recipe(gender ~ ., data = nobel_train) %>%
+  #update_role(name, new_role = "id") %>% 
+  step_rm(contains("name")) %>%
+  step_rm(contains("university")) %>%
+  step_rm(contains("died")) %>%
+  step_other(born_country_code,  threshold = 0.03) %>% 
+  step_dummy(all_nominal(), -all_outcomes()))
+
+```
+
+- **Passos adicionais**
+
+```{r echo=TRUE}
+
+norm_rec <- nobel_rec %>% 
+   step_normalize(all_predictors())
+
+interact_rec <- norm_rec %>% 
+   step_interact(terms = ~age_get_prize:starts_with("born_country_"))
+
+```
+
+### Extração das bases
+
+- **Treino**
+
+```{r echo=TRUE}
+
+train_baked <- juice(prep(nobel_rec))
+  
+```
+
+- **Teste**
+
+```{r echo=TRUE}
+
+test_baked <- bake(prep(nobel_rec), new_data = nobel_test)
+
+```
+
+- **Preview**
+
+```{r}
+
+train_baked %>% glimpse
+
+```
+
+
+### Reamostragem
+
+- **Bootstrap**
+
+```{r echo=TRUE}
+
+set.seed(123)
+(boot_samples <- bootstraps(nobel_train, times = 5))
+
+```
+
+- **Cross Validation**
+
+```{r echo=TRUE}
+
+set.seed(123)
+(cv_splits <- vfold_cv(nobel_train, v = 5, strata = gender))
+
+```
+
+- **Leave one Out**
+- **Monte Carlo Cross Validation**
+- **Out of Time**
+
+[Referência Rsample](https://rsample.tidymodels.org/reference/index.html) 
+
+
+Modelagem
+============================================
+
+Row {.tabset}
+----------------------------------
+
+### Estrutura
+
+```{r}
+
+include_graphics("img/extra_slides/Slide6.png")
+
+
+```
+
+### Modelos
+
+- **Regressão Logística**
+
+```{r echo=TRUE}
+
+(glm_spec <- logistic_reg() %>%
+  set_engine("glm"))
+
+```
+
+- **Floresta Aleatória**
+
+```{r echo=TRUE}
+
+(rf_spec <- rand_forest(mtry = tune(), trees = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("ranger", importance = "impurity"))
+
+```
+
+- **KNN**
+
+```{r echo=TRUE}
+
+(knn_spec <- nearest_neighbor(neighbors = tune(), 
+                              weight_func = tune()) %>% 
+   set_engine("kknn") %>% 
+   set_mode("classification"))
+
+```
+
+### Workflow
+
+```{r echo=TRUE}
+
+(workflow() %>%
+  add_formula(gender ~ .) %>% 
+  add_model(glm_spec))
+```
+
+
+### Workflow set
+
+```{r echo=TRUE}
+
+models_wfs <- workflow_set(preproc = list(simple = nobel_rec, 
+                                          interact = interact_rec,
+                                          normalized = norm_rec),
+                           models = list(glm = glm_spec, 
+                                         rf = rf_spec, 
+                                         knn = knn_spec),
+                           cross = TRUE)
+
+```
+
+
+```{r echo=TRUE, results='hide'}
+
+set.seed(123)
+
+doParallel::registerDoParallel(cores = 6)
+
+nobel_models <- models_wfs %>% 
+   workflow_map("tune_grid",  #função do pacote {{tune}}
+                resamples = boot_samples, 
+                grid = 30, 
+                metrics = metric_set(roc_auc), #recall, spec, precision 
+                verbose = TRUE)
+```
+
+```{r echo=TRUE}
+
+nobel_models %>% 
+  unnest(info)
+
+```
+
+Resultados
+============================================
+
+Row {.tabset}
+--------------------------
+
+### Estrutura
+
+```{r}
+
+include_graphics("img/extra_slides/Slide7.png")
+
+```
+
+
+### Comparação
+
+```{r fig.width=10}
+
+autoplot(nobel_models) +
+  labs(title = "autoplot(nobel_models)")
+
+```
+
+### Melhores modelos
+
+```{r}
+
+rank_results(nobel_models, rank_metric = "roc_auc") %>% 
+  select(rank, wflow_id, mean) %>% 
+  head(20) %>% 
+  gt()
+
+```
+
+### Seleção do melhor modelo
+
+```{r echo=TRUE}
+
+best_model <- function(models_tibble, wf_set, metric_name, train_set){
+  
+  best_param <- models_tibble %>% 
+    pull_workflow_set_result(id = wf_set) %>% 
+    select_best(metric = metric_name)
+  
+  best_model <- models_tibble %>% 
+    pull_workflow(wf_set) %>% 
+    finalize_workflow(best_param) %>% 
+    fit(data = train_set)
+  
+  return(best_model)
+  
+}
+
+```
+
+### Regressão Logística
+
+```{r echo=TRUE}
+
+(glm <- best_model(nobel_models, "simple_glm", "roc_auc", nobel_train))
+
+glm_fit <- glm$fit$fit
+
+```
+
+### Floresta Aleatória
+
+```{r echo=TRUE}
+
+(rf <- best_model(nobel_models, "simple_rf", "roc_auc", nobel_train))
+
+rf_fit <- rf$fit$fit
+
+```
+
+### KNN
+
+```{r echo=TRUE}
+
+(knn <- best_model(nobel_models, "simple_knn", "roc_auc", nobel_train))
+
+knn_fit <- knn$fit$fit
+
+```
+
+### Importância das variáveis
+
+```{r include=FALSE}
+
+library(vip)
+
+glm_var <- vi(glm_fit) %>% 
+  mutate(Importance_pct = abs(Importance)/max(abs(Importance))) %>% 
+  mutate(Variable = fct_reorder(Variable, Importance_pct))
+
+rf_var <- vi(rf_fit) %>% 
+  mutate(Importance_pct = abs(Importance)/max(abs(Importance))) %>% 
+  mutate(Variable = fct_reorder(Variable, Importance_pct))
+
+```
+
+```{r echo=FALSE, fig.height=4, fig.align='right'}
+
+var_imp <- glm_var %>% 
+  mutate(model = 'logistica') %>% 
+  bind_rows(rf_var %>% 
+             mutate(Sign ='POS',
+             model = 'random forest')) %>% 
+  arrange(-Importance_pct)
+  
+var_imp %>% 
+  filter(Importance_pct > 0.2) %>% 
+  arrange(desc(Importance_pct)) %>% 
+  group_by(model) %>% 
+  ggplot(aes(Variable, Importance_pct, color = model)) +
+  geom_point(alpha = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  coord_flip() +
+  scale_color_manual(values = beyonce_palette(72)) +
+  labs(y = "Importância (%)", x = "Variável")
+
+```
+
+### Curva ROC
+
+```{r echo=FALSE, fig.width=10, warning=FALSE}
+
+results_test <- glm %>% 
+  predict(new_data = nobel_test, type = 'prob') %>% 
+  mutate(truth = nobel_test$gender,
+         model = 'glm') %>% 
+  bind_rows(knn %>% 
+  predict(new_data = nobel_test, type = 'prob') %>% 
+  mutate(truth = nobel_test$gender,
+         model = 'knn')) %>% 
+  bind_rows(rf %>% 
+  predict(new_data = nobel_test, type = 'prob') %>% 
+  mutate(truth = nobel_test$gender,
+         model = 'random forest')) %>% 
+  mutate(base = "test")
+
+results_test %>% 
+  group_by(model) %>% 
+  roc_curve(truth, .pred_female) %>% 
+  autoplot() +
+  #scale_color_manual(values = beyonce_palette(72)) +
+  theme(legend.position = "bottom")
+
+ # results_test %>% 
+ #   group_by(model) %>% 
+ #   roc_auc(truth, .pred_female) %>% 
+ #   arrange(-.estimate)
+
+```
+
+
+Tidymodels
+============================================
+
+Row {.tabset}
+--------------------------
+
+### Estrutura
+
+```{r fig.cap="Source: Feature Engineering and Selection"}
+
+
+include_graphics("img/extra_slides/Slide8.png")
+
+```
+
+
+### Pacotes Básicos e Expansões
+
+```{r}
+
+include_graphics("img/extra_slides/Slide1.png")
+
+```
+
+
+Perguntas
+============================================
+
+Row {.tabset}
+--------------------------
+
+### Referências
+
+- [Documentação Tidymodels](https://www.tidymodels.org)
+
+- [Julia Silge's Blog](https://juliasilge.com/blog/netflix-titles/)
+
+- [Tidy modelling with R](https://www.tmwr.org)
+
+- [An introduction to the tidymodels package - Bruna Wunderwald ](http://brunaw.com/tidymodels-webinar/slides/slides.html#1)
+
+- [An introduction to tidymodels - Max Kuhn](https://f.hubspotusercontent00.net/hubfs/3463003/Max%20Kuhn.pdf)
+
+- [Feature Engineering and Selection](https://bookdown.org/max/FES/intro-intro.html)
+
+- [Full Tidymodels Workflowsets Machine Learning Tutorial | Interview w/ Julia Silge (Rstudio)](https://www.youtube.com/watch?v=l5is1lF3Gq0&t=3242s)
+
+- [R-Ladies](https://github.com/R-Ladies-Sao-Paulo/RLadies-Brasil)
+
+- [Generalizing Gain Penalization for Feature Selection in Tree-Based Models - Bruna Wunderwald](https://brunaw.com/blog/posts/2021-03-30-rf-penalization/)
+
+- [Generalizing Gain Penalization for Feature Selection in Tree-Based Models - Bruna Wunderwald](ieeexplore.ieee.org/document/9229097)
+
+- [Machine Learning com tidymodels: Esquenta](http://brunaw.com/tidymodels-webinar/esquenta/slides.html#1)
+
+### Contato
+
+```{r}
+
+include_graphics("img/extra_slides/Slide9.png")
+
+```
+
+

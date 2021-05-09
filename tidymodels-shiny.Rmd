@@ -65,10 +65,6 @@ nobel_colors <- c("#B38C45", #yellow
 
 ```{r global, message=FALSE, warning=FALSE, cache=TRUE, context="data", include=FALSE}
 
-
-# netflix_titles <- read_csv(https://www.kaggle.com/rtatman/chocolate-bar-ratings?select=flavors_of_cacao.csv)
-
-
 nobel_raw <- read_csv("data/nobel_final.csv")
 
 nobel <- nobel_raw %>% 
@@ -122,15 +118,6 @@ include_graphics("img/extra_slides/Slide10.png")
 
 
 ```{r}
-#include_url("https://github.com/tidymodels/tidymodels/raw/master/tidymodels_hex.png", height = "400px")
-
-#url <- "https://github.com/tidymodels/tidymodels/raw/master/tidymodels_hex.png"
-
-#s<center><img src="`r url`"></center>
-
-#knitr::include_graphics(url)
-
-#![](`r url`){width=20%}
 
 include_graphics("img/extra_slides/Slide2.png")
 
